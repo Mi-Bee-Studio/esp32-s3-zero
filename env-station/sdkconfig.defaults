@@ -1,0 +1,30 @@
+## esp32-s3-zero（板子信息见 ../README.md）
+CONFIG_IDF_TARGET="esp32s3"
+
+# 控制台走原生 USB-Serial-JTAG（无 USB-UART 桥）
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+CONFIG_FREERTOS_HZ=1000
+
+# 4MB flash：OTA 双槽（app 偏移 0x20000，web 刷机写备用槽→重启切换）
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# 任务看门狗超时触发 panic 重启（代码里 esp_task_wdt_add 主/DHT 任务；
+# 系统先建了 TWDT，panic 必须走 sdkconfig 才真正生效）
+CONFIG_ESP_TASK_WDT_PANIC=y
+
+# PSRAM：本机 Octal 初始化必挂（80M/40M 皆 abort，见 ../README.md ⚠ 节），
+# 默认关闭；待 Quad 验证或换板后再议。变体：sdkconfig.psram40 / sdkconfig.quad。
+CONFIG_SPIRAM=n
+
+# 满频运行
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
+# 感知阶段用：WiFi CSI 人体感应（v0 尚未启用 WiFi，先占住配置）
+CONFIG_ESP_WIFI_CSI_ENABLED=y
+
+# lwIP socket 槽：默认 10 对 httpd+wfp_tcp+discovery+探测并存的设备太紧
+# （fd 泄漏类故障余量为零，实测 10 槽 ~50s 打爆；16 槽 + app_web 自愈看门狗双保险）
+CONFIG_LWIP_MAX_SOCKETS=16

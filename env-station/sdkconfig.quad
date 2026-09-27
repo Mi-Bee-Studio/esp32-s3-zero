@@ -1,0 +1,5 @@
+## 诊断变体：测试 Quad PSRAM 假设（叠加在 sdkconfig.defaults 之后）
+## 背景：实测本板 octal_psram 初始化 abort（"PSRAM chip is not connected,
+## or wrong PSRAM line mode"），标称 S3FH4R2 的 Octal 与实物不符。
+CONFIG_SPIRAM_MODE_QUAD=y
+CONFIG_SPIRAM_MODE_OCT=n

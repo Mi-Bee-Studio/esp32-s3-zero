@@ -1,0 +1,3 @@
+## 诊断变体：排除 Octal PSRAM 初始化挂死假设（叠加在 sdkconfig.defaults 之后）
+## 用法见 README「诊断固件」节。构建产物在 build-nopsram/。
+CONFIG_SPIRAM=n

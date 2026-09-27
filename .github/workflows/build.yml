@@ -1,0 +1,213 @@
+name: Build Firmware
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry-run: exercise the release job without creating a tag/Release'
+        type: boolean
+        default: true
+
+env:
+  TARGET: esp32s3
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:v6.0
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [blink, env-station]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Firmware (${{ matrix.project }})
+        working-directory: ${{ matrix.project }}
+        run: |
+          . ${IDF_PATH}/export.sh
+          idf.py set-target $TARGET
+          idf.py build
+
+      - name: Prepare Artifacts
+        working-directory: ${{ matrix.project }}
+        run: |
+          mkdir -p ../firmware
+          cp build/bootloader/bootloader.bin ../firmware/${{ matrix.project }}_bootloader.bin
+          cp build/partition_table/partition-table.bin ../firmware/${{ matrix.project }}_partition_table.bin
+          cp build/${{ matrix.project }}.bin ../firmware/${{ matrix.project }}_firmware.bin
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.project }}
+          path: firmware/
+          retention-days: 30
+
+  release:
+    needs: build
+    # tag 推送 = 真发布；workflow_dispatch = 演练（dry-run，不建 tag/Release）
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: firmware-*
+          merge-multiple: true
+          path: firmware/
+
+      # Both projects share the same OTA dual-slot layout: app offset 0x20000
+      - name: Create Flash Scripts
+        run: |
+          cat > flash_blink.sh << 'SCRIPT'
+          #!/bin/bash
+          # blink (Waveshare ESP32-S3-Zero) flash script
+          # Usage: ./flash_blink.sh /dev/ttyACM0
+          PORT=${1:-/dev/ttyACM0}
+          echo "Flashing blink firmware to $PORT..."
+          esptool.py --chip esp32s3 -p "$PORT" -b 460800 --before default_reset --after hard_reset write_flash \
+            0x0 firmware/blink_bootloader.bin \
+            0x8000 firmware/blink_partition_table.bin \
+            0x20000 firmware/blink_firmware.bin
+          echo "Done! Reset the device to start."
+          SCRIPT
+          chmod +x flash_blink.sh
+
+          cat > flash_env-station.sh << 'SCRIPT'
+          #!/bin/bash
+          # env-station (Waveshare ESP32-S3-Zero) flash script
+          # Usage: ./flash_env-station.sh /dev/ttyACM0
+          PORT=${1:-/dev/ttyACM0}
+          echo "Flashing env-station firmware to $PORT..."
+          esptool.py --chip esp32s3 -p "$PORT" -b 460800 --before default_reset --after hard_reset write_flash \
+            0x0 firmware/env-station_bootloader.bin \
+            0x8000 firmware/env-station_partition_table.bin \
+            0x20000 firmware/env-station_firmware.bin
+          echo "Done! Reset the device to start."
+          SCRIPT
+          chmod +x flash_env-station.sh
+
+          cat > flash_blink.bat << 'SCRIPT'
+          @echo off
+          set PORT=%1
+          if "%PORT%"=="" set PORT=COM3
+          echo Flashing blink firmware to %PORT%...
+          esptool.py --chip esp32s3 -p %PORT% -b 460800 --before default_reset --after hard_reset write_flash 0x0 firmware\blink_bootloader.bin 0x8000 firmware\blink_partition_table.bin 0x20000 firmware\blink_firmware.bin
+          echo Done! Reset the device to start.
+          SCRIPT
+
+          cat > flash_env-station.bat << 'SCRIPT'
+          @echo off
+          set PORT=%1
+          if "%PORT%"=="" set PORT=COM3
+          echo Flashing env-station firmware to %PORT%...
+          esptool.py --chip esp32s3 -p %PORT% -b 460800 --before default_reset --after hard_reset write_flash 0x0 firmware\env-station_bootloader.bin 0x8000 firmware\env-station_partition_table.bin 0x20000 firmware\env-station_firmware.bin
+          echo Done! Reset the device to start.
+          SCRIPT
+
+      - name: Generate Checksums
+        run: |
+          cd firmware
+          sha256sum *.bin > ../checksums.txt
+
+      - name: Generate Release Notes
+        run: |
+          PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${{ github.ref_name }}$" | head -1 2>/dev/null || echo "")
+          CURRENT_TAG="${{ github.ref_name }}"
+
+          cat > RELEASE_NOTES.md << EOF
+          # ESP32-S3-Zero Firmware ${CURRENT_TAG}
+
+          ---
+
+          ## What's Changed
+
+          EOF
+
+          if [ -n "$PREV_TAG" ]; then
+            echo "" >> RELEASE_NOTES.md
+            echo '```' >> RELEASE_NOTES.md
+            git log --oneline --no-decorate ${PREV_TAG}..HEAD >> RELEASE_NOTES.md
+            echo '```' >> RELEASE_NOTES.md
+          else
+            echo "Initial release." >> RELEASE_NOTES.md
+          fi
+
+          cat >> RELEASE_NOTES.md << 'EOF'
+          ## Flash Instructions
+
+          Each sub-project ships its own firmware — flash the one you want:
+
+          1. Download the files for your project from this release
+          2. **Linux/Mac**: `chmod +x flash_<project>.sh && ./flash_<project>.sh /dev/ttyACM0`
+          3. **Windows**: `flash_<project>.bat COM3` (replace COM3 with your port)
+          4. Or use ESP-IDF v6.0: `idf.py -p COMx flash`
+
+          > The ESP32-S3-Zero has no auto-download circuit. If esptool fails to
+          > connect, hold the **BOOT** button while plugging USB / pressing RESET.
+
+          ⚠ The app partition starts at **0x20000** (OTA dual-slot layout).
+          First time switching from an older single-slot layout, flash
+          bootloader + partition table + firmware (the scripts do all three).
+
+          ## Files
+
+          | File | Description |
+          |------|-------------|
+          | blink_firmware.bin / env-station_firmware.bin | Main firmware per project |
+          | *_bootloader.bin | ESP32-S3 bootloader |
+          | *_partition_table.bin | Partition table (OTA dual-slot, app @ 0x20000) |
+          | flash_*.sh / flash_*.bat | Flash scripts (project × Linux/Mac + Windows) |
+          | checksums.txt | SHA256 checksums |
+
+          ## First-time Setup
+
+          - **blink**: after flashing, connect to the rescue SoftAP
+            `blink-s3` / `12345678` → 192.168.4.1 to provision WiFi / OTA / reboot.
+          - **env-station**: hardware per [README](env-station/README.md);
+            rescue SoftAP `env-station` / `12345678` → 192.168.4.1 for WiFi
+            provisioning, OTA and reboot; serial console `wifi <ssid> <pass>` works too.
+          EOF
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ASSETS="firmware/blink_bootloader.bin \
+            firmware/blink_partition_table.bin \
+            firmware/blink_firmware.bin \
+            firmware/env-station_bootloader.bin \
+            firmware/env-station_partition_table.bin \
+            firmware/env-station_firmware.bin \
+            flash_blink.sh \
+            flash_blink.bat \
+            flash_env-station.sh \
+            flash_env-station.bat \
+            checksums.txt"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "DRY-RUN（演练模式）：以下产物将作为 ${{ github.ref_name }} Release 发布——"
+            echo "$ASSETS" | tr ' ' '\n' | grep -v '^$'
+            echo "演练通过：全部产物就绪。真实发布请打 v* tag。"
+            exit 0
+          fi
+          if gh release view ${{ github.ref_name }} > /dev/null 2>&1; then
+            echo "Release ${{ github.ref_name }} already exists — uploading/clobbering assets"
+            gh release upload ${{ github.ref_name }} $ASSETS --clobber
+          else
+            gh release create ${{ github.ref_name }} \
+              $ASSETS \
+              --title "ESP32-S3-Zero Firmware ${{ github.ref_name }}" \
+              --notes-file RELEASE_NOTES.md
+          fi

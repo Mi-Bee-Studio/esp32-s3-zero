@@ -1,0 +1,16 @@
+# ESP-IDF 构建产物与自动拉取组件（dependencies.lock 保留：锁定组件版本保证可复现）
+# build-*/ ：变体构建目录（build-nopsram / build-psram40 / build-quad）
+build/
+build-*/
+sdkconfig
+sdkconfig.old
+managed_components/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 本地工作笔记不入库（/AGENTS.md 只锚定根级——子目录工程级 AGENTS.md 可入库）
+/AGENTS.md

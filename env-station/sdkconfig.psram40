@@ -1,0 +1,8 @@
+## 修复变体：Octal PSRAM 降到 40MHz（叠加在 sdkconfig.defaults 之后）。
+## 背景：本芯片 v0.2（2021-03 ROM）老硅片，Octal PSRAM 在 80MHz 下初始化
+## 直接 abort（"PSRAM chip is not connected, or wrong PSRAM line mode"），
+## 总线级挂死。40MHz 是老硅片的官方支持档位。
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=n
+CONFIG_SPIRAM_SPEED_40M=y

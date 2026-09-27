@@ -1,0 +1,5 @@
+dependencies:
+  idf: ">=5.0"
+  # WiFi 配网命令（wifi_scan/wifi_connect）的 JSON 解析，与 luatos 终端同源
+  espressif/cjson:
+    version: ">=1.7.0"
