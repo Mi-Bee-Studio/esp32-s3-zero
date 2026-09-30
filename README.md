@@ -21,6 +21,24 @@ Key points of the convention:
   `main/`, `sdkconfig.defaults`); `cd <project> && idf.py build` produces the firmware;
 - Projects share no code; when commonality is needed, copy first, and consider extracting a shared component only once things stabilize.
 
+### Firmware baseline norms (mandatory fleet-wide)
+
+Two baselines are mandatory for every MiBee firmware repo, and **every project** inside a
+board repo must satisfy them (this repo's Board Overview / Pinout Diagram format is also
+the fleet-wide documentation standard — USB-C pointing up, front/component-side view):
+
+1. **Watchdog: mandatory.** No naked main loops — tasks either subscribe to the ESP-IDF
+   task watchdog (TWDT) and feed it periodically, or (on RP2040) enable the hardware
+   watchdog.
+2. **Web/API firmware upgrade (OTA): mandatory where the hardware allows.** This board
+   has WiFi and 4 MB flash (dual 1.9 MB OTA slots), so every project ships a web/API
+   upgrade path; wired flashing (serialtap/esptool) is the recovery path, not a substitute.
+
+| Project | Watchdog | Web/API OTA |
+|---------|----------|-------------|
+| blink | ✅ task WDT (`esp_task_wdt_init`) | ✅ `POST /ota` streaming writer (slot switch + rollback) |
+| env-station | ✅ dedicated web watchdog task | ✅ web maintenance page (Wi-Fi provisioning/OTA) |
+
 ---
 
 ## Board Overview
