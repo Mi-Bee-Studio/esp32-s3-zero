@@ -4,6 +4,8 @@
 
 [![Build Firmware](https://github.com/Mi-Bee-Studio/esp32-s3-zero/actions/workflows/build.yml/badge.svg)](https://github.com/Mi-Bee-Studio/esp32-s3-zero/actions/workflows/build.yml)
 
+<img src="docs/images/esp32-s3-zero.jpg" alt="Waveshare ESP32-S3-Zero" width="420">
+
 The first board under the board-centric repo convention. **This directory is organized by the "board as root" rule**:
 
 ```
