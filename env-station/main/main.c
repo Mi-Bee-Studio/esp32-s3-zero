@@ -20,6 +20,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "lwip/ip4_addr.h"
+
 #include "app_disc.h"
 #include "app_probe.h"
 #include "app_web.h"
@@ -31,6 +33,10 @@
 #include "driver/i2c_master.h"
 #include "driver/usb_serial_jtag.h"
 #include "esp_heap_caps.h"
+#include "esp_flash.h"
+#include "esp_mac.h"
+#include "esp_netif.h"
+#include "esp_wifi.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_task_wdt.h"
@@ -562,8 +568,53 @@ static void page_r_action(int page)
     ui_draw(page);
 }
 
+/* log_dev_descriptor: #DEV 自述行 —— serialtap 身份事实引擎的固件侧契约
+ * （开机 + 每 60s）：插上串口工具即自动识别板卡身份，无需探测。全字段
+ * 运行时取值，WiFi 未连时 ip/ssid/ch 缺省。 */
+static void log_dev_descriptor(void)
+{
+    char mac[18] = "", ip[16] = "", ssid[33] = "";
+    uint8_t m[6];
+    if (esp_read_mac(m, ESP_MAC_WIFI_STA) == ESP_OK) {
+        snprintf(mac, sizeof(mac), "%02x:%02x:%02x:%02x:%02x:%02x",
+                 m[0], m[1], m[2], m[3], m[4], m[5]);
+    }
+    uint32_t flash_mb = 0, psram_kb = 0;
+    {
+        const esp_flash_t *f = esp_flash_default_chip();
+        if (f) {
+            uint32_t sz = 0;
+            if (esp_flash_get_size((esp_flash_t *)f, &sz) == ESP_OK && sz) {
+                flash_mb = sz / (1024 * 1024);
+            }
+        }
+        size_t ps = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+        if (ps) psram_kb = (uint32_t)ps / 1024;
+    }
+    wifi_ap_record_t ap = {0};
+    int ch = 0;
+    if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+        snprintf(ssid, sizeof(ssid), "%s", ap.ssid);
+        wifi_second_chan_t sec = WIFI_SECOND_CHAN_NONE;
+        esp_wifi_get_channel((uint8_t *)&ch, &sec);
+    }
+    esp_netif_ip_info_t ipi = {0};
+    esp_netif_t *nif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (nif && esp_netif_get_ip_info(nif, &ipi) == ESP_OK && ipi.ip.addr) {
+        snprintf(ip, sizeof(ip), IPSTR, IP2STR(&ipi.ip));
+    }
+    char ch_s[8] = "";
+    if (ch) snprintf(ch_s, sizeof(ch_s), " ch=%d", ch);
+    printf("#DEV model=env-station fw=0.1.0 flash=%luM psram=%luK mac=%s%s%s%s%s%s
+",
+           (unsigned long)flash_mb, (unsigned long)psram_kb, mac,
+           ip[0] ? " ip=" : "", ip[0] ? ip : "",
+           ssid[0] ? " ssid=" : "", ssid[0] ? ssid : "", ch_s);
+}
+
 void app_main(void)
 {
+    log_dev_descriptor();
     srand((unsigned)(esp_timer_get_time() & 0x7fffffff)); /* 窥视随机序列 */
     ESP_LOGI(TAG, "env-station v0.1.0 (+blackbox) | heap=%u | psram=%u",
              (unsigned)esp_get_free_heap_size(),
@@ -619,6 +670,9 @@ void app_main(void)
     int64_t last_activity_ms = esp_timer_get_time() / 1000;
     while (1) {
         esp_task_wdt_reset();
+        if (ticks % (60 * 50) == 0) { /* 50Hz 主循环 → 每 60s 重发 #DEV 自述 */
+            log_dev_descriptor();
+        }
         int l = gpio_get_level(BTN_L_IO);
         int r = gpio_get_level(BTN_R_IO);
         int64_t now_ms = esp_timer_get_time() / 1000;
