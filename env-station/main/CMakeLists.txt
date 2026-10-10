@@ -8,4 +8,4 @@ idf_component_register(SRCS "main.c" "dht.c" "ssd1306.c" "csi.c" "wfp_tcp.c"
                                      esp_driver_gpio esp_driver_i2c esp_driver_rmt
                                      esp_timer esp_driver_usb_serial_jtag
                                      esp_http_server app_update cjson
-                                     esp_http_client mbedtls)
+                                     esp_http_client mbedtls spi_flash)

@@ -37,6 +37,7 @@
 #include "esp_mac.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
+#include "esp_chip_info.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_task_wdt.h"
@@ -581,12 +582,9 @@ static void log_dev_descriptor(void)
     }
     uint32_t flash_mb = 0, psram_kb = 0;
     {
-        const esp_flash_t *f = esp_flash_default_chip();
-        if (f) {
-            uint32_t sz = 0;
-            if (esp_flash_get_size((esp_flash_t *)f, &sz) == ESP_OK && sz) {
-                flash_mb = sz / (1024 * 1024);
-            }
+        uint32_t sz = 0;
+        if (esp_flash_get_size(NULL, &sz) == ESP_OK && sz) {   /* v6：NULL=默认主 flash */
+            flash_mb = sz / (1024 * 1024);
         }
         size_t ps = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
         if (ps) psram_kb = (uint32_t)ps / 1024;
@@ -605,8 +603,7 @@ static void log_dev_descriptor(void)
     }
     char ch_s[8] = "";
     if (ch) snprintf(ch_s, sizeof(ch_s), " ch=%d", ch);
-    printf("#DEV model=env-station fw=0.1.0 flash=%luM psram=%luK mac=%s%s%s%s%s%s
-",
+    printf("#DEV model=env-station fw=0.1.0 flash=%luM psram=%luK mac=%s%s%s%s%s%s\n",
            (unsigned long)flash_mb, (unsigned long)psram_kb, mac,
            ip[0] ? " ip=" : "", ip[0] ? ip : "",
            ssid[0] ? " ssid=" : "", ssid[0] ? ssid : "", ch_s);
@@ -619,6 +616,21 @@ void app_main(void)
     ESP_LOGI(TAG, "env-station v0.1.0 (+blackbox) | heap=%u | psram=%u",
              (unsigned)esp_get_free_heap_size(),
              (unsigned)heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
+
+    /* SELFTEST 自检行（工作区 AGENTS.md"固件自检行"规范）：一行可 grep 的
+     * 开机体检证据，serialtap selftest 按前缀聚合做台架异常发现。 */
+    {
+        esp_chip_info_t ci;
+        esp_chip_info(&ci);
+        size_t psz = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+        char psram_str[12];
+        if (psz) snprintf(psram_str, sizeof(psram_str), "%uMB", (unsigned)(psz >> 20));
+        else     strlcpy(psram_str, "none", sizeof(psram_str));
+        ESP_LOGI(TAG, "SELFTEST: board=esp32-s3-zero-env-station fw=v0.1.0 chip=%s rev=v%d.%d"
+                      " cores=%u psram=%s heap=%uKB",
+                 CONFIG_IDF_TARGET, ci.revision / 100, ci.revision % 100,
+                 ci.cores, psram_str, (unsigned)(esp_get_free_heap_size() >> 10));
+    }
 
     buttons_init();
 
