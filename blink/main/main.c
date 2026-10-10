@@ -10,6 +10,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_chip_info.h"
 #include "esp_heap_caps.h"
 #include "esp_task_wdt.h"
 #include "driver/gpio.h"
@@ -77,6 +78,23 @@ void app_main(void)
              WS2812_GPIO, BOOT_GPIO,
              (unsigned)(esp_get_free_heap_size() / 1024),
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+
+    /* SELFTEST 自检行（工作区 AGENTS.md"固件自检行"规范）：一行可 grep 的
+     * 开机体检证据，serialtap 按前缀聚合做台架异常发现。blink 的 WiFi
+     * 仅为配网/OTA（app_web），不带 wifi 扫描行。PSRAM 探测用 heap_caps
+     * 侧总量（无 PSRAM 板返回 0 → none，不依赖 CONFIG_SPIRAM）。 */
+    {
+        esp_chip_info_t ci;
+        esp_chip_info(&ci);
+        size_t psz = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+        char psram_str[12];
+        if (psz) snprintf(psram_str, sizeof(psram_str), "%uMB", (unsigned)(psz >> 20));
+        else     strlcpy(psram_str, "none", sizeof(psram_str));
+        ESP_LOGI(TAG, "SELFTEST: board=esp32-s3-zero-blink fw=v0.1 chip=%s rev=v%d.%d"
+                      " cores=%u psram=%s heap=%uKB",
+                 CONFIG_IDF_TARGET, ci.revision / 100, ci.revision % 100,
+                 ci.cores, psram_str, (unsigned)(esp_get_free_heap_size() >> 10));
+    }
 
     /* 板端维护页 :80（WiFi 配网 / OTA 刷机 / 状态），自带 APSTA 热点兜底 */
     app_web_init();
